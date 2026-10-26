@@ -22,3 +22,11 @@ lerna-debug.log*
 # temp directory
 .temp
 .tmp
+
+# local notes / editor config (not part of the deliverable)
+/docs/
+/.cursor/
+
+# forge artifacts
+/contracts/out/
+/contracts/cache/
