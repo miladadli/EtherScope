@@ -7,10 +7,7 @@ import { TransfersController } from './transfers.controller';
 import { AddressesCoreModule } from '../addresses/addresses-core.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([TransferEntity]),
-    AddressesCoreModule,
-  ],
+  imports: [TypeOrmModule.forFeature([TransferEntity]), AddressesCoreModule],
   controllers: [TransfersController],
   providers: [TransfersRepository, TransfersService],
   exports: [TransfersRepository, TransfersService],

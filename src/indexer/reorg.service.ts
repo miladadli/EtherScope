@@ -25,9 +25,7 @@ export class ReorgService {
     let n = lastBlock > tip ? tip : lastBlock;
 
     while (n >= 0n) {
-      const local = await this.indexedBlocksRepository.findByNumber(
-        n.toString(),
-      );
+      const local = await this.indexedBlocksRepository.findByNumber(n.toString());
       if (!local) {
         if (n === 0n) {
           break;
@@ -48,10 +46,7 @@ export class ReorgService {
         continue;
       }
 
-      if (
-        remoteHash &&
-        remoteHash.toLowerCase() === local.blockHash.toLowerCase()
-      ) {
+      if (remoteHash && remoteHash.toLowerCase() === local.blockHash.toLowerCase()) {
         return n;
       }
       if (n === 0n) {
@@ -68,8 +63,7 @@ export class ReorgService {
     this.logger.warn(`rolling back index to block ${f}`);
 
     await this.dataSource.transaction(async (manager) => {
-      const touched =
-        await this.transfersRepository.markReorgedAfter(manager, f);
+      const touched = await this.transfersRepository.markReorgedAfter(manager, f);
       await this.indexedBlocksRepository.deleteAfter(manager, f);
       await this.balancesRepository.deleteWhereBalanceBlockAfter(manager, f);
       await this.balancesRepository.markDirtyAddresses(manager, touched);

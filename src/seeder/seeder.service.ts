@@ -48,9 +48,7 @@ export class SeederService {
   async seed(options: SeedOptions = {}): Promise<void> {
     const max = this.config.get('MAX_SEED_COUNT', { infer: true });
     const target =
-      options.count ??
-      this.config.get('SEED_DEFAULT_COUNT', { infer: true }) ??
-      1000;
+      options.count ?? this.config.get('SEED_DEFAULT_COUNT', { infer: true }) ?? 1000;
     const activeRatio = options.activeRatio ?? 0.01;
 
     if (target > max) {
@@ -192,9 +190,7 @@ export class SeederService {
       bytecode: mockErc20Bytecode,
       args: [name, symbol],
     });
-    const receipt = await this.ethereum
-      .getClient()
-      .waitForTransactionReceipt({ hash });
+    const receipt = await this.ethereum.getClient().waitForTransactionReceipt({ hash });
     if (!receipt.contractAddress) {
       throw new Error(`deploy ${symbol} missing contract address`);
     }

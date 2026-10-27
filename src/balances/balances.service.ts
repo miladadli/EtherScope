@@ -5,10 +5,7 @@ import { AddressesService } from '../addresses/addresses.service';
 import { ETH_TOKEN_SENTINEL } from './balance.entity';
 import { BalancesRepository } from './balances.repository';
 import { EthereumService } from '../ethereum/ethereum.service';
-import {
-  MulticallService,
-  type BalanceReadRequest,
-} from '../ethereum/multicall.service';
+import { MulticallService, type BalanceReadRequest } from '../ethereum/multicall.service';
 import { TokensService } from '../tokens/tokens.service';
 import type { Env } from '../config/env.schema';
 import { parseTokenAddresses } from '../config/env.schema';
@@ -28,29 +25,27 @@ export class BalancesService {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
+  // cache only — missing rows marked dirty for BalanceRefreshWorker
   async getBalances(address: string) {
     const watched = await this.addressesService.getOrThrow(address);
     const tip = await this.ethereumService.getBlockNumber();
-    const depth = BigInt(
-      this.config.get('CONFIRMATION_DEPTH', { infer: true }),
-    );
+    const depth = BigInt(this.config.get('CONFIRMATION_DEPTH', { infer: true }));
     const safeTip = tip > depth ? tip - depth : 0n;
 
     let rows = await this.balancesRepository.findForAddress(watched.address);
     const tokenAddrs = await this.resolveTokenAddresses();
     const wanted = this.wantedPairs(watched.address, tokenAddrs, rows);
 
-    // Only missing/dirty rows hit RPC on GET; indexer refreshes dirty at safeTip.
-    const stale = wanted.filter((pair) => {
-      const row = rows.find(
-        (r) =>
-          r.address === pair.address && r.tokenAddress === pair.tokenAddress,
-      );
-      return !row || row.dirty;
-    });
-
-    if (stale.length > 0) {
-      await this.refreshPairs(stale, safeTip);
+    const missing = wanted.filter(
+      (pair) =>
+        !rows.some(
+          (r) => r.address === pair.address && r.tokenAddress === pair.tokenAddress,
+        ),
+    );
+    if (missing.length > 0) {
+      await this.dataSource.transaction(async (manager) => {
+        await this.balancesRepository.markDirty(manager, missing);
+      });
       rows = await this.balancesRepository.findForAddress(watched.address);
     }
 
@@ -59,18 +54,14 @@ export class BalancesService {
       const row = byToken.get(pair.tokenAddress);
       if (!row || row.dirty) {
         return {
-          token:
-            pair.tokenAddress === ETH_TOKEN_SENTINEL
-              ? 'ETH'
-              : pair.tokenAddress,
+          token: pair.tokenAddress === ETH_TOKEN_SENTINEL ? 'ETH' : pair.tokenAddress,
           balance: null as string | null,
           balanceBlock: row?.balanceBlock ?? null,
           dirty: true,
         };
       }
       return {
-        token:
-          pair.tokenAddress === ETH_TOKEN_SENTINEL ? 'ETH' : pair.tokenAddress,
+        token: pair.tokenAddress === ETH_TOKEN_SENTINEL ? 'ETH' : pair.tokenAddress,
         balance: row.balance,
         balanceBlock: row.balanceBlock,
         dirty: false,
@@ -90,11 +81,37 @@ export class BalancesService {
     if (dirty.length === 0) {
       return 0;
     }
+    await this.refreshPairs(
+      dirty.map((d) => ({
+        address: d.address,
+        tokenAddress: d.tokenAddress,
+      })),
+      blockNumber,
+    );
+    return dirty.length;
+  }
+
+  async refreshDirtyBatch(blockNumber: bigint): Promise<number> {
+    const batchSize = this.config.get('BALANCE_REFRESH_BATCH', { infer: true });
+    const concurrency = this.config.get('BALANCE_REFRESH_CONCURRENCY', {
+      infer: true,
+    });
+    const dirty = await this.balancesRepository.findDirty(batchSize);
+    if (dirty.length === 0) {
+      return 0;
+    }
+
     const pairs = dirty.map((d) => ({
       address: d.address,
       tokenAddress: d.tokenAddress,
     }));
-    await this.refreshPairs(pairs, blockNumber);
+    const chunkSize = Math.max(1, Math.ceil(pairs.length / concurrency));
+    const chunks: BalanceReadRequest[][] = [];
+    for (let i = 0; i < pairs.length; i += chunkSize) {
+      chunks.push(pairs.slice(i, i + chunkSize));
+    }
+
+    await Promise.all(chunks.map((chunk) => this.refreshPairs(chunk, blockNumber)));
     return pairs.length;
   }
 
@@ -114,6 +131,9 @@ export class BalancesService {
     pairs: BalanceReadRequest[],
     blockNumber: bigint,
   ): Promise<void> {
+    if (pairs.length === 0) {
+      return;
+    }
     const key = `${blockNumber}:${pairs
       .map((p) => `${p.address}:${p.tokenAddress}`)
       .sort()
@@ -161,8 +181,6 @@ export class BalancesService {
     if (fromDb.length > 0) {
       return fromDb.map((t) => t.address.toLowerCase());
     }
-    return parseTokenAddresses(
-      this.config.get('TOKEN_ADDRESSES', { infer: true }),
-    );
+    return parseTokenAddresses(this.config.get('TOKEN_ADDRESSES', { infer: true }));
   }
 }

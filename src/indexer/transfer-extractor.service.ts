@@ -118,10 +118,7 @@ export class TransferExtractorService {
 
       for (const log of logs) {
         const expectedHash = blockHashByNumber.get(log.blockNumber.toString());
-        if (
-          !expectedHash ||
-          log.blockHash.toLowerCase() !== expectedHash.toLowerCase()
-        ) {
+        if (!expectedHash || log.blockHash.toLowerCase() !== expectedHash.toLowerCase()) {
           continue;
         }
 
@@ -173,9 +170,7 @@ export class TransferExtractorService {
       }
     }
 
-    this.logger.debug(
-      `extracted ${transfers.length} transfers in blocks ${from}-${to}`,
-    );
+    this.logger.debug(`extracted ${transfers.length} transfers in blocks ${from}-${to}`);
 
     return {
       blocks,

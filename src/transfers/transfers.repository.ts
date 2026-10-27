@@ -1,11 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
-import {
-  TransferAsset,
-  TransferEntity,
-  TransferStatus,
-} from './transfer.entity';
+import { EntityManager, Repository, SelectQueryBuilder } from 'typeorm';
+import { TransferAsset, TransferEntity, TransferStatus } from './transfer.entity';
 
 export type NewTransferRow = {
   txHash: string;
@@ -19,6 +15,14 @@ export type NewTransferRow = {
   value: string;
 };
 
+type FindOpts = {
+  includeReorged: boolean;
+  limit: number;
+  minBlock: string;
+  cursorBlock?: string;
+  cursorLogIndex?: number;
+};
+
 @Injectable()
 export class TransfersRepository {
   constructor(
@@ -26,10 +30,7 @@ export class TransfersRepository {
     private readonly repo: Repository<TransferEntity>,
   ) {}
 
-  async upsertActive(
-    manager: EntityManager,
-    rows: NewTransferRow[],
-  ): Promise<void> {
+  async upsertActive(manager: EntityManager, rows: NewTransferRow[]): Promise<void> {
     if (rows.length === 0) {
       return;
     }
@@ -47,10 +48,7 @@ export class TransfersRepository {
       .execute();
   }
 
-  async markReorgedAfter(
-    manager: EntityManager,
-    blockNumber: string,
-  ): Promise<string[]> {
+  async markReorgedAfter(manager: EntityManager, blockNumber: string): Promise<string[]> {
     const affected = await manager
       .createQueryBuilder(TransferEntity, 't')
       .where('t.block_number > :blockNumber', { blockNumber })
@@ -77,26 +75,53 @@ export class TransfersRepository {
     return [...addresses];
   }
 
-  async findForAddress(
+  // from/to queried separately so each side can use a composite index
+  async findForAddress(address: string, opts: FindOpts): Promise<TransferEntity[]> {
+    const [asFrom, asTo] = await Promise.all([
+      this.querySide('from_address', address, opts),
+      this.querySide('to_address', address, opts),
+    ]);
+
+    const byId = new Map<string, TransferEntity>();
+    for (const row of asFrom) {
+      byId.set(row.id, row);
+    }
+    for (const row of asTo) {
+      byId.set(row.id, row);
+    }
+
+    return [...byId.values()]
+      .sort((a, b) => {
+        const blockCmp = compareBigIntDesc(a.blockNumber, b.blockNumber);
+        if (blockCmp !== 0) {
+          return blockCmp;
+        }
+        return b.logIndex - a.logIndex;
+      })
+      .slice(0, opts.limit);
+  }
+
+  private querySide(
+    column: 'from_address' | 'to_address',
     address: string,
-    opts: {
-      includeReorged: boolean;
-      limit: number;
-      minBlock: string;
-      cursorBlock?: string;
-      cursorLogIndex?: number;
-    },
+    opts: FindOpts,
   ): Promise<TransferEntity[]> {
     const qb = this.repo
       .createQueryBuilder('t')
-      .where('(t.from_address = :address OR t.to_address = :address)', {
-        address,
-      })
+      .where(`t.${column} = :address`, { address })
       .andWhere('t.block_number >= :minBlock', { minBlock: opts.minBlock })
       .orderBy('t.block_number', 'DESC')
       .addOrderBy('t.log_index', 'DESC')
       .take(opts.limit);
 
+    this.applyStatusAndCursor(qb, opts);
+    return qb.getMany();
+  }
+
+  private applyStatusAndCursor(
+    qb: SelectQueryBuilder<TransferEntity>,
+    opts: FindOpts,
+  ): void {
     if (!opts.includeReorged) {
       qb.andWhere('t.status = :status', { status: TransferStatus.Active });
     }
@@ -110,7 +135,14 @@ export class TransfersRepository {
         },
       );
     }
-
-    return qb.getMany();
   }
+}
+
+function compareBigIntDesc(a: string, b: string): number {
+  const left = BigInt(a);
+  const right = BigInt(b);
+  if (left === right) {
+    return 0;
+  }
+  return left < right ? 1 : -1;
 }

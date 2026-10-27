@@ -1,13 +1,18 @@
 import { z } from 'zod';
 
 export const envSchema = z.object({
-  NODE_ENV: z
-    .enum(['development', 'test', 'production'])
-    .default('development'),
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   ENABLE_INDEXER: z
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  ENABLE_BALANCE_WORKER: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  BALANCE_REFRESH_INTERVAL_MS: z.coerce.number().int().positive().default(2000),
+  BALANCE_REFRESH_BATCH: z.coerce.number().int().positive().default(100),
+  BALANCE_REFRESH_CONCURRENCY: z.coerce.number().int().positive().default(4),
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().min(1),
   DB_POOL_MAX: z.coerce.number().int().positive().default(10),

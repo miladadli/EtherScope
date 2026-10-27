@@ -1,18 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import {
-  erc20Abi,
-  getAddress,
-  multicall3Abi,
-  type Address,
-  type Hex,
-} from 'viem';
+import { erc20Abi, getAddress, multicall3Abi, type Hex } from 'viem';
 import { EthereumService } from './ethereum.service';
-import {
-  MULTICALL3_ADDRESS,
-  MULTICALL3_BYTECODE,
-} from './multicall3.constants';
+import { MULTICALL3_ADDRESS, MULTICALL3_BYTECODE } from './multicall3.constants';
 import { ETH_TOKEN_SENTINEL } from '../balances/balance.entity';
-
 
 export type BalanceReadRequest = {
   address: string;
@@ -48,10 +38,7 @@ export class MulticallService implements OnModuleInit {
 
     await (
       client as unknown as {
-        request: (args: {
-          method: string;
-          params: unknown[];
-        }) => Promise<unknown>;
+        request: (args: { method: string; params: unknown[] }) => Promise<unknown>;
       }
     ).request({
       method: 'anvil_setCode',

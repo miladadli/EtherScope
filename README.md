@@ -1,14 +1,8 @@
 # EtherScope
 
-NestJS indexer that watches Ethereum addresses for native ETH and configured ERC-20 transfers. Local demo runs on Anvil + PostgreSQL with crash-safe checkpoints and reorg handling.
+NestJS service that watches many Ethereum addresses: indexes **native ETH** and configured **ERC-20** transfers, exposes history / balances / sync over HTTP, and recovers cleanly from restarts, RPC blips, and short reorgs.
 
-## Stack
-
-- NestJS, TypeORM, PostgreSQL 16
-- Viem
-- Foundry Anvil
-
-No Redis/Kafka in v1 — in-process WatchSet, Postgres advisory lock, and DB-backed balance cache are enough for this scale.
+Local demo: **Anvil + PostgreSQL** (Docker). Target scale for the seeder is **~100k** watched addresses with only a small active subset sending txs. No Redis/Kafka in v1.
 
 ## Quick start
 
@@ -20,90 +14,94 @@ npm run migration:run
 npm run start:dev
 ```
 
-| | URL |
-|--|-----|
-| Health | `GET http://localhost:3000/health` |
-| Swagger | http://localhost:3000/docs |
-| Indexer status | `GET http://localhost:3000/admin/indexer` |
-
-Requires Docker (Postgres + Anvil on `:5432` / `:8545`). Anvil uses `--block-time 1`.
-
-### Seed
-
-Run **while the API may be up** — the CLI forces `ENABLE_INDEXER=false` so it does not take the advisory lock.
+Then: [Swagger](http://localhost:3000/docs) · `GET /health` · `GET /metrics`
 
 ```bash
-# small demo
 npm run seed -- --count=1000 --active-ratio=0.01
-
-# take-home scale (~100k watched; keep activeRatio small on Anvil)
-npm run seed -- --count=100000 --active-ratio=0.001
+# scale demo: --count=100000 --active-ratio=0.001
 ```
 
-On PowerShell, if flags are ignored, call the CLI directly:
+Seed deploys mock tokens **ALP** / **BET**, funds a small active set, and writes sample transfers. CLI sets `ENABLE_INDEXER=false` so it does not fight the API for the DB lock.
 
-```bash
-npx ts-node -r tsconfig-paths/register src/cli.ts seed --count 100000 --active-ratio 0.001
-```
+Optional split processes: `npm run start:api` (HTTP only) and `npm run start:indexer`.
 
-What seed does:
-
-1. Inserts watched addresses (`start_block = tip + 1`) in chunks of 5000  
-2. Deploys mock ERC-20s **ALP** / **BET** and registers them in `tokens`  
-3. Sequentially funds + mints a small **active** subset on Anvil (waits each receipt; progress logged)  
-4. Sends a few sample transfers, then Multicall-snapshots balances for actives  
-
-`transfers.asset` is only `eth` | `erc20`; the specific token is `token_address` (join `tokens` for ALP/BET symbols).
-
-### API
+## API
 
 | Method | Path | Notes |
 |--------|------|--------|
-| GET | `/health` | DB + RPC + indexer running + tip / last indexed |
-| GET | `/addresses/:address/sync` | `startBlock`, indexer checkpoint, tip |
-| GET | `/addresses/:address/transfers` | default `active`; `?includeReorged=true`; cursor via `cursorBlock` / `cursorLogIndex` |
-| GET | `/addresses/:address/balances` | Multicall only for missing/dirty rows; indexer refreshes dirty at safeTip; `token: "ETH"` or contract |
-| GET | `/admin/indexer` | running, WatchSet size, checkpoint, tip |
+| GET | `/health` | DB, RPC, indexer running, tip / last indexed |
+| GET | `/metrics` | counters, lag, dirty queue, process roles |
+| GET | `/addresses/:address/sync` | `startBlock`, checkpoint, tip |
+| GET | `/addresses/:address/transfers` | `active` by default; `?includeReorged=true`; cursor pagination |
+| GET | `/addresses/:address/balances` | cache-first; background worker fills dirty via Multicall3 (`ETH` or token address) |
+| GET | `/admin/indexer` | running, WatchSet size, checkpoint |
 
-### Observability (v1)
+`transfers.asset` is `eth` \| `erc20`; concrete ERC-20 is `tokenAddress` (see `tokens` table for ALP/BET).
 
-Structured Nest `Logger` on lifecycle paths: indexer start/stop, advisory lock, batch index, reorg rollback, RPC tick failure + backoff, Multicall3 install, seed phases/progress, balance read failures.
+## Architecture
 
-Operational reads: `/health`, `/admin/indexer`, `/docs`. No Prometheus/OpenTelemetry in v1 (enough for the take-home).
+```mermaid
+flowchart LR
+  subgraph clients [Clients]
+    API[HTTP API]
+    CLI[Seed CLI]
+  end
 
-## Layout
+  subgraph app [NestJS process]
+    IDX[Indexer loop]
+    WRK[Balance worker]
+    WS[WatchSet RAM]
+  end
 
-Feature modules: controller → service → repository. Indexer and seeder call services only.
+  PG[(PostgreSQL)]
+  RPC[Anvil / RPC]
 
-## Tests (need Docker stack running)
-
-```bash
-npm run test:idempotency
-npm run test:reorg
-# or all e2e:
-npm run test:e2e
+  CLI --> RPC
+  CLI --> PG
+  API --> PG
+  IDX --> WS
+  IDX --> RPC
+  IDX --> PG
+  WRK --> RPC
+  WRK --> PG
 ```
 
-- **idempotency** — rewind checkpoint and reprocess; active transfer count unchanged  
-- **reorg** — `evm_snapshot` → index a tx → `evm_revert` → transfers become `reorged`
+```mermaid
+flowchart TB
+  tip[Chain tip] --> safe[safeTip = tip − depth]
+  safe --> extract[Extract ETH txs + ERC-20 logs]
+  extract --> filter[Filter by WatchSet + start_block]
+  filter --> tx[One DB TX: transfers + dirty + indexed_blocks + checkpoint]
+  tx --> dirty[dirty balances]
+  dirty --> worker[Balance worker Multicall @ safeTip]
+  worker --> bal[balances cache]
+  api[GET /balances] --> bal
+```
 
-Stop `start:dev` before e2e if you want a quieter DB (tests run their own Nest context with indexer loop disabled and call `processOnce()`).
+**Decisions in v1**
+- History in `transfers`; balances from chain (Multicall3), not naive deltas — gas / fee-on-transfer break sum-of-transfers.
+- Index only to `safeTip`; keep `indexed_blocks` hashes; on mismatch soft-mark `reorged` and rewind checkpoint.
+- Single writer via Postgres advisory lock; WatchSet in RAM for O(1) filter at ~100k addresses.
+- Batch commit is atomic — crash mid-range replays from checkpoint (`orIgnore` on transfers).
+- GET balances is cache-only; a capped worker (`BALANCE_REFRESH_*`) drains dirty rows so the API path does not stampede RPC.
+- Transfers listing: two side queries (from / to) merged in memory so composite indexes stay usable (no SQL `OR`).
+- Code layout: controller → service → repository; same binary can run as API-only or indexer via entrypoints.
 
-## Design notes (interview)
+**Growth path**
+- API and indexer contend → split `start:api` / `start:indexer`
+- WatchSet or hot shared state outgrows one box → **Redis** (shared set, rate limits, short locks)
+- Ingest lag or dirty queue stays high → **Kafka** (or similar) between extract and persist; scale consumers
+- Hot `transfers` reads → read replica, partition by time/block, or address-touch table
+- Backups on a busy primary → replica / volume snapshot; keep statement timeouts
 
-**Throughput:** filter early with an in-memory WatchSet, batch writes per block range, keep the connection pool capped (`DB_POOL_MAX`). Scale claims need a benchmark; 100k quiet addresses is mostly a lookup/filter problem, not a Kafka problem.
+## Tests
 
-**DB slow under backup:** keep backups off the hot primary when possible (replica / volume snapshot). Cap pool size and statement timeouts so a slow disk cannot exhaust connections. Prefer shedding ingest work over locking the whole process.
+Docker stack must be up. Prefer stopping `start:dev` first.
 
-**Balances:** history comes from indexed transfers; balances are read from chain (Multicall3) for touched/dirty addresses so gas fees are not mis-accounted by naive deltas.
-
-**Reorg:** index only to `safeTip = tip − CONFIRMATION_DEPTH`; store `indexed_blocks` hashes; on mismatch / tip regression, soft-mark transfers `reorged` and rewind checkpoint.
-
-## Status
-
-- Schema, health/API, Swagger  
-- ETH + ERC-20 indexer, atomic checkpoint, reorg rollback  
-- Multicall balances + lazy GET  
-- Seeder CLI (up to 100k)  
-- Retry/backoff, shutdown hooks, advisory lock  
-- e2e: idempotency + reorg  
+```bash
+npm run test:e2e
+npm run test:idempotency
+npm run test:reorg
+npm run format
+npm run format:check
+```

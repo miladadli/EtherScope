@@ -30,10 +30,7 @@ export class IndexedBlocksRepository {
       .execute();
   }
 
-  async deleteAfter(
-    manager: EntityManager,
-    blockNumber: string,
-  ): Promise<void> {
+  async deleteAfter(manager: EntityManager, blockNumber: string): Promise<void> {
     await manager
       .createQueryBuilder()
       .delete()
@@ -42,10 +39,7 @@ export class IndexedBlocksRepository {
       .execute();
   }
 
-  async pruneBefore(
-    manager: EntityManager,
-    keepFrom: string,
-  ): Promise<void> {
+  async pruneBefore(manager: EntityManager, keepFrom: string): Promise<void> {
     await manager
       .createQueryBuilder()
       .delete()

@@ -9,11 +9,7 @@ export class TokensService {
     return this.tokensRepository.findEnabled();
   }
 
-  registerToken(input: {
-    address: string;
-    symbol: string;
-    decimals: number;
-  }) {
+  registerToken(input: { address: string; symbol: string; decimals: number }) {
     return this.tokensRepository.upsertToken({
       address: input.address.toLowerCase(),
       symbol: input.symbol,

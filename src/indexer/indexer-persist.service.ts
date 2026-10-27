@@ -34,16 +34,9 @@ export class IndexerPersistService {
       await this.balancesRepository.markDirty(manager, batch.touchedTokenPairs);
       await this.indexedBlocksRepository.insertMany(manager, batch.blocks);
       if (pruneBefore > 0n) {
-        await this.indexedBlocksRepository.pruneBefore(
-          manager,
-          pruneBefore.toString(),
-        );
+        await this.indexedBlocksRepository.pruneBefore(manager, pruneBefore.toString());
       }
-      await this.indexerStateService.saveState(
-        manager,
-        last.blockNumber,
-        last.blockHash,
-      );
+      await this.indexerStateService.saveState(manager, last.blockNumber, last.blockHash);
     });
   }
 }

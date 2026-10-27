@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AppConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { EthereumModule } from './ethereum/ethereum.module';
+import { MetricsCoreModule } from './metrics/metrics-core.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { AddressesModule } from './addresses/addresses.module';
 import { TokensModule } from './tokens/tokens.module';
 import { TransfersModule } from './transfers/transfers.module';
@@ -15,6 +17,7 @@ import { SeederModule } from './seeder/seeder.module';
   imports: [
     AppConfigModule,
     DatabaseModule,
+    MetricsCoreModule,
     EthereumModule,
     AddressesModule,
     TokensModule,
@@ -23,6 +26,7 @@ import { SeederModule } from './seeder/seeder.module';
     IndexerModule,
     HealthModule,
     AdminModule,
+    MetricsModule,
     SeederModule,
   ],
 })

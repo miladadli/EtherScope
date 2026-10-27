@@ -32,11 +32,6 @@ import { TokensModule } from '../tokens/tokens.module';
     IndexerPersistService,
     IndexerService,
   ],
-  exports: [
-    IndexerStateModule,
-    WatchSetService,
-    ReorgService,
-    IndexerService,
-  ],
+  exports: [IndexerStateModule, WatchSetService, ReorgService, IndexerService],
 })
 export class IndexerModule {}

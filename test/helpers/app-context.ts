@@ -7,6 +7,7 @@ loadEnv();
 
 export async function createAppContext(): Promise<INestApplicationContext> {
   process.env.ENABLE_INDEXER = 'false';
+  process.env.ENABLE_BALANCE_WORKER = 'false';
   process.env.CONFIRMATION_DEPTH = '0';
   process.env.POLL_INTERVAL_MS = '200';
 

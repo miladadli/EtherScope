@@ -34,13 +34,9 @@ export class SeedCommand extends CommandRunner {
     const countRaw = options.count ?? readArg('count');
     const ratioRaw = options.activeRatio ?? readArg('active-ratio');
     const count =
-      countRaw !== undefined && countRaw !== ''
-        ? Number(countRaw)
-        : undefined;
+      countRaw !== undefined && countRaw !== '' ? Number(countRaw) : undefined;
     const activeRatio =
-      ratioRaw !== undefined && ratioRaw !== ''
-        ? Number(ratioRaw)
-        : undefined;
+      ratioRaw !== undefined && ratioRaw !== '' ? Number(ratioRaw) : undefined;
 
     this.logger.log(
       `seed args count=${count ?? 'default'} activeRatio=${activeRatio ?? 'default'}`,

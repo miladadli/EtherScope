@@ -17,7 +17,7 @@ export class BalancesController {
   @Get(':address/balances')
   @ApiOperation({
     summary:
-      'ETH + enabled ERC-20 balances (Multicall only for missing/dirty rows)',
+      'ETH + enabled ERC-20 balances (cache-first; dirty rows filled by background worker)',
   })
   @ApiParam({
     name: 'address',

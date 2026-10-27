@@ -19,16 +19,13 @@ export class TransfersService {
     },
   ) {
     const watched = await this.addressesService.getOrThrow(address);
-    const rows = await this.transfersRepository.findForAddress(
-      watched.address,
-      {
-        includeReorged: query.includeReorged === true,
-        limit: Math.min(query.limit ?? 50, 200),
-        minBlock: watched.startBlock,
-        cursorBlock: query.cursorBlock,
-        cursorLogIndex: query.cursorLogIndex,
-      },
-    );
+    const rows = await this.transfersRepository.findForAddress(watched.address, {
+      includeReorged: query.includeReorged === true,
+      limit: Math.min(query.limit ?? 50, 200),
+      minBlock: watched.startBlock,
+      cursorBlock: query.cursorBlock,
+      cursorLogIndex: query.cursorLogIndex,
+    });
 
     return rows.map((t) => ({
       txHash: t.txHash,

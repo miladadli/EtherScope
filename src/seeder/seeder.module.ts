@@ -7,12 +7,7 @@ import { EthereumModule } from '../ethereum/ethereum.module';
 import { BalancesModule } from '../balances/balances.module';
 
 @Module({
-  imports: [
-    AddressesCoreModule,
-    TokensModule,
-    EthereumModule,
-    BalancesModule,
-  ],
+  imports: [AddressesCoreModule, TokensModule, EthereumModule, BalancesModule],
   providers: [SeederService, SeedCommand],
   exports: [SeederService],
 })

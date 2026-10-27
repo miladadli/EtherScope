@@ -29,9 +29,7 @@ export class HealthController {
     }
 
     const rpcOk = await this.ethereumService.isReachable();
-    const tip = rpcOk
-      ? (await this.ethereumService.getBlockNumber()).toString()
-      : null;
+    const tip = rpcOk ? (await this.ethereumService.getBlockNumber()).toString() : null;
     const state = await this.indexerStateService.getState();
 
     return {

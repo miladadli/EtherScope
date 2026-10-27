@@ -1,11 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  createPublicClient,
-  http,
-  type PublicClient,
-  type Chain,
-} from 'viem';
+import { createPublicClient, http, type PublicClient, type Chain } from 'viem';
 import { foundry } from 'viem/chains';
 import type { Env } from '../config/env.schema';
 

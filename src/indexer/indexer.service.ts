@@ -1,12 +1,6 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Env } from '../config/env.schema';
-import { parseTokenAddresses } from '../config/env.schema';
+import { parseTokenAddresses, type Env } from '../config/env.schema';
 import { EthereumService } from '../ethereum/ethereum.service';
 import { TokensService } from '../tokens/tokens.service';
 import { IndexerLockService } from './indexer-lock.service';
@@ -16,7 +10,7 @@ import { TransferExtractorService } from './transfer-extractor.service';
 import { IndexerPersistService } from './indexer-persist.service';
 import { ReorgService } from './reorg.service';
 import { WatchSetService } from './watch-set.service';
-import { BalancesService } from '../balances/balances.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { withBackoff } from '../common/retry';
 
 @Injectable()
@@ -38,7 +32,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     private readonly persist: IndexerPersistService,
     private readonly reorg: ReorgService,
     private readonly watchSet: WatchSetService,
-    private readonly balancesService: BalancesService,
+    private readonly metrics: MetricsService,
   ) {}
 
   async onModuleInit() {
@@ -76,7 +70,6 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     return this.running;
   }
 
-  /** Single tick for tests / manual catch-up. */
   async processOnce(): Promise<void> {
     await this.tick();
   }
@@ -90,10 +83,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         this.failures = 0;
       } catch (err) {
         this.failures += 1;
-        const backoff = Math.min(
-          pollMs * 2 ** Math.min(this.failures, 5),
-          30_000,
-        );
+        this.metrics.inc('indexer_tick_errors_total');
+        const backoff = Math.min(pollMs * 2 ** Math.min(this.failures, 5), 30_000);
         this.logger.error('indexer tick failed', {
           err: err instanceof Error ? err.message : err,
           failures: this.failures,
@@ -122,9 +113,12 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
     let last = BigInt(state.lastBlockNumber);
 
-    const chainAtLast = await this.ethereum.getClient().getBlock({
-      blockNumber: last,
-    }).catch(() => null);
+    const chainAtLast = await this.ethereum
+      .getClient()
+      .getBlock({
+        blockNumber: last,
+      })
+      .catch(() => null);
 
     if (
       tip < last ||
@@ -133,6 +127,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     ) {
       const fork = await this.reorg.findForkParent(last);
       await this.reorg.rollbackTo(fork);
+      this.metrics.inc('indexer_reorgs_total');
       state = await this.stateService.getState();
       if (!state) {
         return;
@@ -141,10 +136,6 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (last >= safeTip) {
-      const refreshed = await this.balancesService.refreshDirtyAt(safeTip);
-      if (refreshed > 0) {
-        this.logger.log(`refreshed ${refreshed} dirty balances at ${safeTip}`);
-      }
       return;
     }
 
@@ -168,26 +159,21 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       ) {
         const fork = await this.reorg.findForkParent(last);
         await this.reorg.rollbackTo(fork);
+        this.metrics.inc('indexer_reorgs_total');
         return;
       }
     }
 
     const tokens = await this.resolveTokenAddresses();
-    const batch = await withBackoff(() =>
-      this.extractor.extractRange(from, to, tokens),
-    );
+    const batch = await withBackoff(() => this.extractor.extractRange(from, to, tokens));
     await this.persist.commitBatch(batch);
+
+    this.metrics.inc('indexer_batches_total');
+    this.metrics.inc('indexer_transfers_total', batch.transfers.length);
 
     this.logger.log(
       `indexed ${from}-${to} (${batch.transfers.length} transfers, tip=${tip})`,
     );
-
-    if (to === safeTip) {
-      const refreshed = await this.balancesService.refreshDirtyAt(safeTip);
-      if (refreshed > 0) {
-        this.logger.log(`refreshed ${refreshed} dirty balances at ${safeTip}`);
-      }
-    }
   }
 
   private async bootstrapCheckpoint(safeTip: bigint): Promise<void> {
@@ -213,9 +199,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     if (fromDb.length > 0) {
       return fromDb.map((t) => t.address as `0x${string}`);
     }
-    return parseTokenAddresses(
-      this.config.get('TOKEN_ADDRESSES', { infer: true }),
-    );
+    return parseTokenAddresses(this.config.get('TOKEN_ADDRESSES', { infer: true }));
   }
 
   private sleep(ms: number): Promise<void> {

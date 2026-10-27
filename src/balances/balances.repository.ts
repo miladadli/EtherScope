@@ -14,15 +14,20 @@ export class BalancesRepository {
     return this.repo.find({ where: { address } });
   }
 
-  findOne(
-    address: string,
-    tokenAddress: string,
-  ): Promise<BalanceEntity | null> {
+  findOne(address: string, tokenAddress: string): Promise<BalanceEntity | null> {
     return this.repo.findOne({ where: { address, tokenAddress } });
   }
 
-  findDirty(): Promise<BalanceEntity[]> {
-    return this.repo.find({ where: { dirty: true } });
+  findDirty(limit?: number): Promise<BalanceEntity[]> {
+    return this.repo.find({
+      where: { dirty: true },
+      take: limit,
+      order: { updatedAt: 'ASC' },
+    });
+  }
+
+  countDirty(): Promise<number> {
+    return this.repo.count({ where: { dirty: true } });
   }
 
   async upsertFresh(
@@ -104,10 +109,7 @@ export class BalancesRepository {
       .execute();
   }
 
-  async markDirtyAddresses(
-    manager: EntityManager,
-    addresses: string[],
-  ): Promise<void> {
+  async markDirtyAddresses(manager: EntityManager, addresses: string[]): Promise<void> {
     if (addresses.length === 0) {
       return;
     }

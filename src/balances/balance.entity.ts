@@ -1,9 +1,4 @@
-import {
-  Column,
-  Entity,
-  PrimaryColumn,
-  UpdateDateColumn,
-} from 'typeorm';
+import { Column, Entity, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 
 /** Sentinel for native ETH rows in balances.token_address */
 export const ETH_TOKEN_SENTINEL = '0x0000000000000000000000000000000000000000';

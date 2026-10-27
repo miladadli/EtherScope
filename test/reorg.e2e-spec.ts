@@ -1,12 +1,6 @@
 import { INestApplicationContext } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import {
-  createWalletClient,
-  http,
-  parseEther,
-  type Hash,
-  type Hex,
-} from 'viem';
+import { createWalletClient, http, parseEther, type Hash, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { createAppContext } from './helpers/app-context';
